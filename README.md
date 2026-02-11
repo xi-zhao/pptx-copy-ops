@@ -1,29 +1,44 @@
 # pptx-copy-ops
 
-`pptx-copy-ops` is a small Python library for copying slides across PowerPoint files using native PPTX XML operations (no HTML conversion).
+`pptx-copy-ops` is a lightweight Python library for copying slides across PowerPoint files using native PPTX XML operations (no HTML conversion).
+
+`pptx-copy-ops` 是一个轻量级 Python 库，使用 PPTX 原生 XML 机制进行跨模板幻灯片复制（不经过 HTML 转换）。
 
 It provides two copy modes:
 
 - `part`: full-slide part-level copy for highest visual fidelity across templates.
 - `shape`: blank-slide + shape-level copy fallback.
 
-## Why
+它提供两种复制模式：
 
-Cross-template slide copy is easy to break with:
+- `part`：整页 part 级复制，优先保证跨模板视觉一致性。
+- `shape`：空白页 + shape 级复制，作为兼容回退模式。
+
+## Why / 为什么
+
+Cross-template slide copy can easily break due to:
 
 - dangling relationship IDs
 - unregistered slide masters
 - `sldMasterId` and `sldLayoutId` collisions
 
+跨模板复制常见的损坏原因包括：
+
+- 关系 ID 悬空（dangling relationship）
+- 幻灯片母版未注册
+- `sldMasterId` 与 `sldLayoutId` 冲突
+
 This package wraps those low-level OpenXML steps into a stable API.
 
-## Install
+本项目把这些底层 OpenXML 细节封装成稳定 API，方便直接集成。
+
+## Install / 安装
 
 ```bash
 pip install pptx-copy-ops
 ```
 
-## Python API
+## Python API / Python 调用
 
 ```python
 from pptx_copy_ops import SlideCopier, SlideSpec
@@ -39,7 +54,7 @@ copier.copy_slides(
 copier.save("/path/to/output.pptx")
 ```
 
-## CLI
+## CLI / 命令行
 
 ```bash
 python -m pptx_copy_ops.cli \
@@ -50,18 +65,29 @@ python -m pptx_copy_ops.cli \
   --output /path/to/output.pptx
 ```
 
-Arguments:
+Arguments / 参数说明:
 
 - `--mode`: `part` or `shape`
 - `--source`: repeatable, 1-based slide index (`/path/file.pptx:slide_number`)
 
-## Guarantees
+参数补充：
+
+- `--mode`：可选 `part` 或 `shape`
+- `--source`：可重复传入，页码为 1-based（`/path/file.pptx:slide_number`）
+
+## Guarantees / 能力保证
 
 - Part-level copy skips `notesSlide` relation to avoid noisy cross-package note dependencies.
 - Imported slide masters are auto-registered in `presentation.xml`.
 - Layout IDs are normalized globally and kept disjoint from master IDs.
 
-## Development
+对应中文：
+
+- `part` 模式会跳过 `notesSlide` 关系，避免跨包注释页噪声依赖。
+- 自动将导入母版注册到 `presentation.xml`。
+- 全局规整 `layout id`，并与 `master id` 保持互斥，避免冲突。
+
+## Development / 开发
 
 ```bash
 cd pptx-copy-ops
@@ -69,6 +95,6 @@ pytest -q
 python -m build
 ```
 
-## License
+## License / 协议
 
 MIT

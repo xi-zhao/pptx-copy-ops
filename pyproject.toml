@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pptx-copy-ops"
+version = "0.1.0"
+description = "Cross-template PowerPoint slide copy operations (shape and part modes)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "python-pptx>=0.6.23",
+]
+authors = [
+  { name = "pptx-copy-ops contributors" }
+]
+license = "MIT"
+keywords = ["pptx", "powerpoint", "slide-copy", "python-pptx"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/pptx-copy-ops"
+Repository = "https://github.com/your-org/pptx-copy-ops"
+
+[project.scripts]
+pptx-copy = "pptx_copy_ops.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

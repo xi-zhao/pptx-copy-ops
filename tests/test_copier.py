@@ -7,6 +7,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 from pptx import Presentation
@@ -17,6 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from pptx_copy_ops import copy_pptx_slides  # noqa: E402
 from pptx_copy_ops.copier import SlideCopier, SlideSpec  # noqa: E402
 
 _ONE_PIXEL_PNG = base64.b64decode(
@@ -56,6 +58,13 @@ def _slide_texts(slide) -> list[str]:
         if text:
             texts.append(text)
     return texts
+
+
+def _assert_no_duplicate_zip_members(pptx_path: Path) -> None:
+    with zipfile.ZipFile(pptx_path) as archive:
+        names = [item.filename for item in archive.infolist()]
+    duplicates = [name for name, count in Counter(names).items() if count > 1]
+    assert not duplicates, f"duplicate zip members detected: {sorted(duplicates)}"
 
 
 def _assert_no_dangling_slide_relationship_refs(pptx_path: Path) -> None:
@@ -117,6 +126,15 @@ def _assert_master_ids_disjoint_from_layout_ids(pptx_path: Path) -> None:
         assert not overlap, f"sldMasterId/@id conflicts with sldLayoutId/@id: {overlap}"
 
 
+def _registered_master_count(pptx_path: Path) -> int:
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    with zipfile.ZipFile(pptx_path) as archive:
+        presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
+    return len(
+        presentation_root.findall(f"./{{{p_ns}}}sldMasterIdLst/{{{p_ns}}}sldMasterId")
+    )
+
+
 def test_part_mode_copy_two_slides_and_id_invariants(tmp_path: Path) -> None:
     target = tmp_path / "target.pptx"
     src1 = tmp_path / "source1.pptx"
@@ -142,6 +160,33 @@ def test_part_mode_copy_two_slides_and_id_invariants(tmp_path: Path) -> None:
     assert "Source A" in _slide_texts(generated.slides[0])
     assert "Source B" in _slide_texts(generated.slides[1])
 
+    _assert_no_dangling_slide_relationship_refs(output)
+    _assert_master_ids_disjoint_from_layout_ids(output)
+
+
+def test_public_api_copies_slides_without_engine_dependency(tmp_path: Path) -> None:
+    target = tmp_path / "target.pptx"
+    src1 = tmp_path / "source1.pptx"
+    src2 = tmp_path / "source2.pptx"
+    output = tmp_path / "out_public_api.pptx"
+
+    _build_target_template(target)
+    _build_source_deck(src1, title="Standalone A", body="Body A")
+    _build_source_deck(src2, title="Standalone B", body="Body B")
+
+    destination = copy_pptx_slides(
+        target_template=target,
+        sources=[(src1, 0), (src2, 0)],
+        output_pptx=output,
+        mode="part",
+    )
+
+    assert destination == output.resolve()
+    generated = Presentation(output)
+    assert len(generated.slides) == 2
+    assert "Standalone A" in _slide_texts(generated.slides[0])
+    assert "Standalone B" in _slide_texts(generated.slides[1])
+    assert _registered_master_count(output) > _registered_master_count(target)
     _assert_no_dangling_slide_relationship_refs(output)
     _assert_master_ids_disjoint_from_layout_ids(output)
 
@@ -172,6 +217,39 @@ def test_shape_mode_copy_two_slides_text_matches(tmp_path: Path) -> None:
     assert "Shape Source B" in _slide_texts(generated.slides[1])
 
     _assert_no_dangling_slide_relationship_refs(output)
+
+
+def test_part_mode_copy_slide_with_multiple_images_has_unique_media_members(tmp_path: Path) -> None:
+    from PIL import Image
+
+    target = tmp_path / "target.pptx"
+    source = tmp_path / "source_multi_image.pptx"
+    output = tmp_path / "out_multi_image_part.pptx"
+
+    _build_target_template(target)
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    if slide.shapes.title is not None:
+        slide.shapes.title.text = "Source Multi"
+    if len(slide.placeholders) > 1:
+        slide.placeholders[1].text = "contains two different images"
+
+    image1 = source.with_name("img_red.png")
+    image2 = source.with_name("img_green.png")
+    Image.new("RGB", (4, 4), (255, 0, 0)).save(image1)
+    Image.new("RGB", (4, 4), (0, 255, 0)).save(image2)
+    slide.shapes.add_picture(str(image1), Inches(8.8), Inches(0.2), Inches(0.35), Inches(0.35))
+    slide.shapes.add_picture(str(image2), Inches(9.2), Inches(0.2), Inches(0.35), Inches(0.35))
+    prs.save(source)
+    image1.unlink(missing_ok=True)
+    image2.unlink(missing_ok=True)
+
+    copier = SlideCopier(target)
+    copier.copy_slides([SlideSpec(source, 0)], mode="part")
+    copier.save(output)
+
+    _assert_no_duplicate_zip_members(output)
 
 
 def test_cli_smoke(tmp_path: Path) -> None:

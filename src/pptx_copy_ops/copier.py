@@ -5,7 +5,7 @@ import io
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Dict, Iterable, Literal, Optional, Tuple
 
 from pptx import Presentation
 from pptx.slide import Slide
@@ -131,12 +131,29 @@ class SlideCopier:
             return cached
 
         if str(getattr(source_part, "content_type", "")).startswith("image/"):
+            # Avoid get_or_add_image_part() while importing detached part graphs:
+            # next_image_partname() only scans rooted parts and can allocate
+            # duplicate `/ppt/media/imageN.*` names for not-yet-related parts.
+            template = self._build_partname_template(str(source_part.partname))
+            new_partname = self._allocate_partname(template, allocated_partnames)
+            source_blob = source_part.blob
+            source_cls = source_part.__class__
             try:
-                image_part = target_package.get_or_add_image_part(io.BytesIO(source_part.blob))
-                imported_parts[cache_key] = image_part
-                return image_part
+                image_part = source_cls.load(
+                    new_partname,
+                    source_part.content_type,
+                    target_package,
+                    source_blob,
+                )
             except Exception:
-                pass
+                image_part = Part.load(
+                    new_partname,
+                    source_part.content_type,
+                    target_package,
+                    source_blob,
+                )
+            imported_parts[cache_key] = image_part
+            return image_part
 
         template = self._build_partname_template(str(source_part.partname))
         new_partname = self._allocate_partname(template, allocated_partnames)
@@ -398,3 +415,32 @@ class SlideCopier:
                 max_layout_id += 1
             node.set("id", str(max_layout_id))
             used_layout_ids.add(max_layout_id)
+
+
+SlideSource = SlideSpec | tuple[Path | str, int]
+
+
+def _coerce_slide_spec(source: SlideSource) -> SlideSpec:
+    if isinstance(source, SlideSpec):
+        return source
+    source_path, slide_index = source
+    return SlideSpec(source_path=source_path, slide_index=slide_index)
+
+
+def copy_pptx_slides(
+    *,
+    target_template: Path | str,
+    sources: Iterable[SlideSource],
+    output_pptx: Path | str,
+    mode: SlideCopyMode = "part",
+    clear_existing: bool = True,
+) -> Path:
+    """Copy slides into a PPTX and save the result.
+
+    This is the standalone public API for callers that do not need to manage a
+    `SlideCopier` instance directly.
+    """
+
+    copier = SlideCopier(target_template=target_template, clear_existing=clear_existing)
+    copier.copy_slides([_coerce_slide_spec(source) for source in sources], mode=mode)
+    return copier.save(output_pptx)

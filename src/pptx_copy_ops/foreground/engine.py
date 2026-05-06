@@ -29,7 +29,7 @@ def copy_foreground_slide(
     decisions = [classify_element(element, request.policy) for element in inventory.elements]
 
     mode = "part" if request.policy.copy_policy == CopyPolicy.EXACT_PART_COPY else "shape"
-    copier = SlideCopier(target_template=target_pptx, clear_existing=False)
+    copier = SlideCopier(target_template=target_pptx, clear_existing=request.clear_existing)
     copier.copy_slide(SlideSpec(source_pptx, request.slide_index), mode=mode)
     copier.save(output)
 

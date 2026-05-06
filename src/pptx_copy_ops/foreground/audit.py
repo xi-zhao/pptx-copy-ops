@@ -11,6 +11,7 @@ from pptx import Presentation
 
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 OFFICE_REL_PREFIX = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
 
 
@@ -70,6 +71,29 @@ def read_relationships(
     return relationships
 
 
+def _content_type_maps(root: etree._Element | None) -> tuple[set[str], set[str]]:
+    if root is None:
+        return set(), set()
+    overrides = {
+        (override.get("PartName") or "").lstrip("/")
+        for override in root.findall(f"{{{CONTENT_TYPES_NS}}}Override")
+        if override.get("PartName") and override.get("ContentType")
+    }
+    defaults = {
+        default.get("Extension") or ""
+        for default in root.findall(f"{{{CONTENT_TYPES_NS}}}Default")
+        if default.get("Extension") and default.get("ContentType")
+    }
+    return overrides, defaults
+
+
+def _has_content_type(part_name: str, overrides: set[str], defaults: set[str]) -> bool:
+    if part_name in overrides:
+        return True
+    extension = Path(part_name).suffix.lstrip(".")
+    return bool(extension and extension in defaults)
+
+
 def audit_pptx_integrity(path: Path | str, require_openable: bool = True) -> list[str]:
     pptx_path = Path(path)
     issues: list[str] = []
@@ -100,6 +124,10 @@ def audit_pptx_integrity(path: Path | str, require_openable: bool = True) -> lis
                 issues.append(f"invalid XML {name}: {type(exc).__name__}: {exc}")
 
         relationships = read_relationships(archive, name_set)
+        content_types_root = xml_roots.get("[Content_Types].xml")
+        if content_types_root is None:
+            issues.append("missing [Content_Types].xml")
+        content_type_overrides, content_type_defaults = _content_type_maps(content_types_root)
 
         for rels_name, root in xml_roots.items():
             if not rels_name.endswith(".rels"):
@@ -119,6 +147,14 @@ def audit_pptx_integrity(path: Path | str, require_openable: bool = True) -> lis
                 if resolved not in name_set:
                     issues.append(
                         f"missing relationship target: {rels_name} {rid} -> {target} ({resolved})"
+                    )
+                elif not _has_content_type(
+                    resolved,
+                    content_type_overrides,
+                    content_type_defaults,
+                ):
+                    issues.append(
+                        f"missing content type for relationship target: {rels_name} {rid} -> {resolved}"
                     )
             duplicate_rel_ids = [rid for rid, count in Counter(rel_ids).items() if count > 1]
             if duplicate_rel_ids:

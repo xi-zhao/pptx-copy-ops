@@ -62,3 +62,32 @@ def test_audit_flags_missing_relationship_target(tmp_path: Path) -> None:
     issues = audit_pptx_integrity(pptx_path, require_openable=False)
 
     assert any("missing relationship target" in issue for issue in issues)
+
+
+def test_audit_flags_relationship_target_without_content_type(tmp_path: Path) -> None:
+    pptx_path = tmp_path / "missing_content_type.pptx"
+    with zipfile.ZipFile(pptx_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "ppt/slides/slide1.xml",
+            """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld><p:spTree/></p:cSld>
+</p:sld>""",
+        )
+        archive.writestr(
+            "ppt/slides/_rels/slide1.xml.rels",
+            """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>
+</Relationships>""",
+        )
+        archive.writestr("ppt/charts/chart1.xml", "<c:chartSpace xmlns:c='c'/>")
+
+    issues = audit_pptx_integrity(pptx_path, require_openable=False)
+
+    assert any("missing content type for relationship target" in issue for issue in issues)

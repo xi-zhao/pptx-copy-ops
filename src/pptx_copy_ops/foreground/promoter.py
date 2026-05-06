@@ -22,6 +22,8 @@ from .dependency_graph import (
 from .inventory import DML_NS, PML_NS, REL_NS, LayerInventory, q
 from .models import ElementClassification, ForegroundCopyPolicy, LayerName
 
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+
 
 @dataclass
 class PromotionReport:
@@ -123,18 +125,156 @@ def _source_relationships(
     return rels
 
 
+def _upsert_override(root: etree._Element, *, part_name: str, content_type: str) -> None:
+    normalized = f"/{part_name.lstrip('/')}"
+    for override in root.findall(f"{{{CONTENT_TYPES_NS}}}Override"):
+        if override.get("PartName") == normalized:
+            override.set("ContentType", content_type)
+            return
+    override = etree.SubElement(root, f"{{{CONTENT_TYPES_NS}}}Override")
+    override.set("PartName", normalized)
+    override.set("ContentType", content_type)
+
+
+def _ensure_default(root: etree._Element, *, extension: str, content_type: str) -> None:
+    for default in root.findall(f"{{{CONTENT_TYPES_NS}}}Default"):
+        if default.get("Extension") == extension:
+            return
+    default = etree.SubElement(root, f"{{{CONTENT_TYPES_NS}}}Default")
+    default.set("Extension", extension)
+    default.set("ContentType", content_type)
+
+
+def _copy_content_type(
+    *,
+    source_entries: dict[str, bytes],
+    output_entries: dict[str, bytes],
+    source_part: str,
+    copied_part: str,
+) -> None:
+    source_root = etree.fromstring(source_entries["[Content_Types].xml"])
+    output_root = etree.fromstring(output_entries["[Content_Types].xml"])
+    source_part_name = f"/{source_part.lstrip('/')}"
+
+    for override in source_root.findall(f"{{{CONTENT_TYPES_NS}}}Override"):
+        if override.get("PartName") == source_part_name:
+            content_type = override.get("ContentType")
+            if content_type:
+                _upsert_override(output_root, part_name=copied_part, content_type=content_type)
+                output_entries["[Content_Types].xml"] = etree.tostring(
+                    output_root,
+                    xml_declaration=True,
+                    encoding="UTF-8",
+                    standalone=True,
+                )
+            return
+
+    extension = Path(source_part).suffix.lstrip(".")
+    if not extension:
+        return
+    for default in source_root.findall(f"{{{CONTENT_TYPES_NS}}}Default"):
+        if default.get("Extension") == extension and default.get("ContentType"):
+            _ensure_default(
+                output_root,
+                extension=extension,
+                content_type=default.get("ContentType") or "",
+            )
+            output_entries["[Content_Types].xml"] = etree.tostring(
+                output_root,
+                xml_declaration=True,
+                encoding="UTF-8",
+                standalone=True,
+            )
+            return
+
+
+def _copy_relationship_closure(
+    *,
+    source_entries: dict[str, bytes],
+    output_entries: dict[str, bytes],
+    source_part: str,
+    copied_part: str,
+    existing_names: set[str],
+    copied_parts: list[str],
+    part_map: dict[str, str],
+) -> None:
+    source_rels_part = rels_path(source_part)
+    if source_rels_part not in source_entries:
+        return
+
+    source_rels_root, _source_rels = read_relationships(source_entries[source_rels_part])
+    copied_rels_root = new_relationships_root()
+    for source_rel in source_rels_root:
+        rid = source_rel.get("Id")
+        reltype = source_rel.get("Type")
+        target = source_rel.get("Target")
+        if not rid or not reltype or not target:
+            continue
+
+        copied_rel = etree.SubElement(
+            copied_rels_root,
+            f"{{http://schemas.openxmlformats.org/package/2006/relationships}}Relationship",
+        )
+        copied_rel.set("Id", rid)
+        copied_rel.set("Type", reltype)
+        target_mode = source_rel.get("TargetMode", "")
+        if target_mode == "External":
+            copied_rel.set("Target", target)
+            copied_rel.set("TargetMode", target_mode)
+            continue
+
+        source_target_part = resolve_target(source_part, target)
+        copied_target_part = _copy_internal_part(
+            source_entries,
+            output_entries,
+            existing_names,
+            source_target_part,
+            copied_parts,
+            part_map,
+        )
+        copied_rel.set("Target", relative_target(copied_part, copied_target_part))
+
+    copied_rels_part = rels_path(copied_part)
+    output_entries[copied_rels_part] = etree.tostring(
+        copied_rels_root,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    copied_parts.append(copied_rels_part)
+
+
 def _copy_internal_part(
     source_entries: dict[str, bytes],
     output_entries: dict[str, bytes],
     existing_names: set[str],
     source_part: str,
     copied_parts: list[str],
+    part_map: dict[str, str],
 ) -> str:
+    if source_part in part_map:
+        return part_map[source_part]
     if source_part not in source_entries:
         return source_part
     copied_part = allocate_part_name(source_part, existing_names)
+    part_map[source_part] = copied_part
     output_entries[copied_part] = source_entries[source_part]
     copied_parts.append(copied_part)
+    _copy_content_type(
+        source_entries=source_entries,
+        output_entries=output_entries,
+        source_part=source_part,
+        copied_part=copied_part,
+    )
+    _copy_relationship_closure(
+        source_entries=source_entries,
+        output_entries=output_entries,
+        source_part=source_part,
+        copied_part=copied_part,
+        existing_names=existing_names,
+        copied_parts=copied_parts,
+        part_map=part_map,
+    )
     return copied_part
 
 
@@ -148,6 +288,7 @@ def _rewrite_relationships(
     target_rels_root: etree._Element,
     existing_names: set[str],
     copied_parts: list[str],
+    part_map: dict[str, str],
 ) -> None:
     source_rels = _source_relationships(source_entries, source_part)
     for element in clone.iter():
@@ -178,6 +319,7 @@ def _rewrite_relationships(
                 existing_names,
                 source_target_part,
                 copied_parts,
+                part_map,
             )
             new_target = relative_target(target_slide_part, copied_target_part)
             new_rid = add_relationship(
@@ -220,6 +362,7 @@ def promote_foreground_elements(
     existing_names = set(output_entries)
     promoted: list[str] = []
     copied_parts: list[str] = []
+    part_map: dict[str, str] = {}
     next_shape_id = _max_shape_id(slide_root) + 1
 
     for element_ref in inventory.elements:
@@ -242,6 +385,7 @@ def promote_foreground_elements(
             target_rels_root=target_rels_root,
             existing_names=existing_names,
             copied_parts=copied_parts,
+            part_map=part_map,
         )
         _insert_before_ext_list(sp_tree, clone)
         promoted.append(f"{element_ref.layer.value}:{element_ref.name or element_ref.tag}")

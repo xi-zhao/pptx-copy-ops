@@ -6,6 +6,8 @@ from pathlib import Path
 
 from lxml import etree
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.dml.color import RGBColor
 
 from pptx_copy_ops.foreground import CopyPolicy, ForegroundCopyPolicy, ForegroundCopyRequest
 from pptx_copy_ops.foreground.audit import audit_pptx_integrity
@@ -270,6 +272,45 @@ def test_foreground_promote_keeps_master_foreground_and_slide_text(tmp_path: Pat
     assert "MASTER_BACKGROUND_MARKER" not in "\n".join(texts)
     assert result.trace.promoted_elements
     assert result.trace.audit_issues == []
+    assert audit_pptx_integrity(output) == []
+
+
+def test_foreground_promote_removes_slide_local_background_canvas(tmp_path: Path) -> None:
+    source = tmp_path / "source_with_slide_background.pptx"
+    target = tmp_path / "target_with_slide_background.pptx"
+    output = tmp_path / "output_without_slide_background.pptx"
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    background = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        0,
+        0,
+        prs.slide_width,
+        prs.slide_height,
+    )
+    background.name = "SOURCE_BACKGROUND_CANVAS"
+    background.fill.solid()
+    background.fill.fore_color.rgb = RGBColor(0, 0, 0)
+    slide.shapes.add_textbox(500000, 700000, 3000000, 400000).text = "SLIDE_FOREGROUND_MARKER"
+    prs.save(source)
+    Presentation().save(target)
+
+    result = copy_foreground_slide(
+        ForegroundCopyRequest(
+            source_pptx=source,
+            slide_index=0,
+            target_pptx=target,
+            policy=ForegroundCopyPolicy(copy_policy=CopyPolicy.FOREGROUND_PROMOTE),
+        ),
+        output_pptx=output,
+    )
+
+    output_prs = Presentation(str(output))
+    output_shapes = list(output_prs.slides[0].shapes)
+    assert "SLIDE_FOREGROUND_MARKER" in _slide_texts(output)
+    assert all(shape.name != "SOURCE_BACKGROUND_CANVAS" for shape in output_shapes)
+    assert any("slide:SOURCE_BACKGROUND_CANVAS" in item for item in result.trace.removed_background_elements)
     assert audit_pptx_integrity(output) == []
 
 

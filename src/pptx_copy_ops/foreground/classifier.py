@@ -40,11 +40,31 @@ def _is_large_canvas(element: ElementRef) -> bool:
     return large_band or (nearly_full_width and nearly_full_height)
 
 
+def _is_slide_background_canvas(element: ElementRef) -> bool:
+    if element.extents is None or element.text.strip():
+        return False
+    x, y, cx, cy = element.extents
+    near_origin = abs(x) < 250_000 and abs(y) < 250_000
+    covers_width = cx > int(SLIDE_WIDTH_EMU * 0.70)
+    covers_height = cy > int(SLIDE_HEIGHT_EMU * 0.85)
+    covers_area = (cx * cy) > int(SLIDE_WIDTH_EMU * SLIDE_HEIGHT_EMU * 0.70)
+    return near_origin and covers_width and covers_height and covers_area
+
+
 def classify_element(
     element: ElementRef,
     policy: ForegroundCopyPolicy,
 ) -> ClassificationDecision:
     if element.layer == LayerName.SLIDE:
+        if (
+            policy.copy_policy == CopyPolicy.FOREGROUND_PROMOTE
+            and _is_slide_background_canvas(element)
+        ):
+            return ClassificationDecision(
+                element,
+                ElementClassification.BACKGROUND,
+                "slide-local background canvas",
+            )
         return ClassificationDecision(element, ElementClassification.FOREGROUND, "slide-local content")
 
     if _is_placeholder(element, policy):

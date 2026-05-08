@@ -20,7 +20,7 @@ from .dependency_graph import (
     resolve_target,
 )
 from .inventory import DML_NS, PML_NS, REL_NS, LayerInventory, q
-from .models import ElementClassification, ForegroundCopyPolicy, LayerName
+from .models import ClassificationDecision, ElementClassification, ForegroundCopyPolicy, LayerName
 
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 
@@ -112,6 +112,78 @@ def _insert_before_ext_list(sp_tree: etree._Element, clone: etree._Element) -> N
             sp_tree.insert(index, clone)
             return
     sp_tree.append(clone)
+
+
+def _shape_name(node: etree._Element) -> str:
+    c_nv_pr = node.find(f".//{q(PML_NS, 'cNvPr')}")
+    return c_nv_pr.get("name", "") if c_nv_pr is not None else ""
+
+
+def _shape_extents(node: etree._Element) -> tuple[int, int, int, int] | None:
+    xfrm = node.find(f".//{q(DML_NS, 'xfrm')}")
+    if xfrm is None:
+        return None
+    off = xfrm.find(q(DML_NS, "off"))
+    ext = xfrm.find(q(DML_NS, "ext"))
+    if off is None or ext is None:
+        return None
+    return (
+        int(off.get("x", "0")),
+        int(off.get("y", "0")),
+        int(ext.get("cx", "0")),
+        int(ext.get("cy", "0")),
+    )
+
+
+def _shape_matches_ref(node: etree._Element, *, name: str, extents: tuple[int, int, int, int] | None) -> bool:
+    if name and _shape_name(node) == name:
+        return True
+    return extents is not None and _shape_extents(node) == extents
+
+
+def remove_slide_background_elements(
+    *,
+    output_pptx: Path | str,
+    decisions: list[ClassificationDecision],
+    target_slide_index: int = -1,
+) -> list[str]:
+    background_refs = [
+        decision.element
+        for decision in decisions
+        if decision.element.layer == LayerName.SLIDE
+        and decision.classification == ElementClassification.BACKGROUND
+    ]
+    if not background_refs:
+        return []
+
+    output_path = Path(output_pptx)
+    output_entries, output_order = _read_entries(output_path)
+    slide_parts = _slide_parts_by_order(output_entries)
+    if not slide_parts:
+        return []
+    target_slide_part = slide_parts[target_slide_index]
+    slide_root = etree.fromstring(output_entries[target_slide_part])
+    sp_tree = slide_root.find(f".//{q(PML_NS, 'spTree')}")
+    if sp_tree is None:
+        return []
+
+    removed: list[str] = []
+    for element_ref in background_refs:
+        for child in list(sp_tree):
+            if _shape_matches_ref(child, name=element_ref.name, extents=element_ref.extents):
+                sp_tree.remove(child)
+                removed.append(f"{element_ref.layer.value}:{element_ref.name or element_ref.tag}")
+                break
+
+    if removed:
+        output_entries[target_slide_part] = etree.tostring(
+            slide_root,
+            xml_declaration=True,
+            encoding="UTF-8",
+            standalone=True,
+        )
+        _write_entries(output_path, output_entries, output_order)
+    return removed
 
 
 def _source_relationships(

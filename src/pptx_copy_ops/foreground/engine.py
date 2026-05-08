@@ -13,7 +13,7 @@ from .models import (
     ForegroundCopyResult,
     ForegroundCopyTrace,
 )
-from .promoter import promote_foreground_elements
+from .promoter import promote_foreground_elements, remove_slide_background_elements
 from .sanitizer import sanitize_pptx_package
 
 
@@ -39,6 +39,13 @@ def copy_foreground_slide(
     )
 
     if request.policy.copy_policy != CopyPolicy.EXACT_PART_COPY:
+        trace.removed_background_elements.extend(
+            remove_slide_background_elements(
+                output_pptx=output,
+                decisions=decisions,
+                target_slide_index=-1,
+            )
+        )
         promotion = promote_foreground_elements(
             output_pptx=output,
             source_pptx=source_pptx,

@@ -104,6 +104,7 @@ class ForegroundCopyTrace:
     decisions: list[ClassificationDecision] = field(default_factory=list)
     copied_parts: list[str] = field(default_factory=list)
     promoted_elements: list[str] = field(default_factory=list)
+    removed_background_elements: list[str] = field(default_factory=list)
     sanitized_parts: list[str] = field(default_factory=list)
     audit_issues: list[str] = field(default_factory=list)
 

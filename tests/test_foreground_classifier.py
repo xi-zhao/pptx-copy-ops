@@ -68,6 +68,42 @@ def test_classifier_keeps_slide_local_content() -> None:
     assert "slide-local" in decision.reason
 
 
+def test_classifier_removes_slide_local_full_canvas_background() -> None:
+    element = ElementRef(
+        layer=LayerName.SLIDE,
+        part_name="ppt/slides/slide1.xml",
+        element_index=2,
+        tag="pic",
+        name="Background Image",
+        text="",
+        extents=(0, 0, 11520488, 6480174),
+    )
+
+    decision = classify_element(element, ForegroundCopyPolicy())
+
+    assert decision.classification == ElementClassification.BACKGROUND
+    assert "slide-local background" in decision.reason
+
+
+def test_classifier_keeps_slide_local_background_for_exact_part_copy() -> None:
+    element = ElementRef(
+        layer=LayerName.SLIDE,
+        part_name="ppt/slides/slide1.xml",
+        element_index=2,
+        tag="pic",
+        name="Background Image",
+        text="",
+        extents=(0, 0, 11520488, 6480174),
+    )
+
+    decision = classify_element(
+        element,
+        ForegroundCopyPolicy(copy_policy=CopyPolicy.EXACT_PART_COPY),
+    )
+
+    assert decision.classification == ElementClassification.FOREGROUND
+
+
 def test_classifier_keeps_small_master_logo_picture() -> None:
     element = ElementRef(
         layer=LayerName.MASTER,

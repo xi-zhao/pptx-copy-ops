@@ -11,6 +11,7 @@ from pptx_copy_ops.foreground import CopyPolicy, ForegroundCopyPolicy, Foregroun
 from pptx_copy_ops.foreground.audit import audit_pptx_integrity
 from pptx_copy_ops.foreground.engine import copy_foreground_slide
 from pptx_copy_ops.foreground.inventory import DML_NS, PML_NS, REL_NS, collect_layer_inventory, q
+from pptx_copy_ops.foreground.promoter import _copy_content_type
 
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
@@ -35,6 +36,37 @@ def _rels_path(part_name: str) -> str:
         "_rels",
         f"{posixpath.basename(part_name)}.rels",
     )
+
+
+def test_copy_content_type_matches_default_extensions_case_insensitively() -> None:
+    source_entries = {
+        "[Content_Types].xml": f"""
+<Types xmlns="{CONTENT_TYPES_NS}">
+  <Default Extension="gif" ContentType="image/gif"/>
+</Types>
+""".strip().encode(),
+    }
+    output_entries = {
+        "[Content_Types].xml": f"""
+<Types xmlns="{CONTENT_TYPES_NS}">
+  <Default Extension="xml" ContentType="application/xml"/>
+</Types>
+""".strip().encode(),
+    }
+
+    _copy_content_type(
+        source_entries=source_entries,
+        output_entries=output_entries,
+        source_part="ppt/media/image1.GIF",
+        copied_part="ppt/media/image2.GIF",
+    )
+
+    root = etree.fromstring(output_entries["[Content_Types].xml"])
+    defaults = {
+        default.get("Extension"): default.get("ContentType")
+        for default in root.findall(f"{{{CONTENT_TYPES_NS}}}Default")
+    }
+    assert defaults["gif"] == "image/gif"
 
 
 def _inject_master_shapes(path: Path) -> None:

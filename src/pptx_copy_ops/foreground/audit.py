@@ -80,7 +80,7 @@ def _content_type_maps(root: etree._Element | None) -> tuple[set[str], set[str]]
         if override.get("PartName") and override.get("ContentType")
     }
     defaults = {
-        default.get("Extension") or ""
+        (default.get("Extension") or "").lower()
         for default in root.findall(f"{{{CONTENT_TYPES_NS}}}Default")
         if default.get("Extension") and default.get("ContentType")
     }
@@ -90,7 +90,7 @@ def _content_type_maps(root: etree._Element | None) -> tuple[set[str], set[str]]
 def _has_content_type(part_name: str, overrides: set[str], defaults: set[str]) -> bool:
     if part_name in overrides:
         return True
-    extension = Path(part_name).suffix.lstrip(".")
+    extension = Path(part_name).suffix.lstrip(".").lower()
     return bool(extension and extension in defaults)
 
 

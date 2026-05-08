@@ -137,11 +137,12 @@ def _upsert_override(root: etree._Element, *, part_name: str, content_type: str)
 
 
 def _ensure_default(root: etree._Element, *, extension: str, content_type: str) -> None:
+    normalized_extension = extension.lower()
     for default in root.findall(f"{{{CONTENT_TYPES_NS}}}Default"):
-        if default.get("Extension") == extension:
+        if (default.get("Extension") or "").lower() == normalized_extension:
             return
     default = etree.SubElement(root, f"{{{CONTENT_TYPES_NS}}}Default")
-    default.set("Extension", extension)
+    default.set("Extension", normalized_extension)
     default.set("ContentType", content_type)
 
 
@@ -169,11 +170,14 @@ def _copy_content_type(
                 )
             return
 
-    extension = Path(source_part).suffix.lstrip(".")
+    extension = Path(source_part).suffix.lstrip(".").lower()
     if not extension:
         return
     for default in source_root.findall(f"{{{CONTENT_TYPES_NS}}}Default"):
-        if default.get("Extension") == extension and default.get("ContentType"):
+        if (
+            (default.get("Extension") or "").lower() == extension
+            and default.get("ContentType")
+        ):
             _ensure_default(
                 output_root,
                 extension=extension,

@@ -116,6 +116,7 @@ class ForegroundCopyRequest:
     target_pptx: Path
     policy: ForegroundCopyPolicy = field(default_factory=ForegroundCopyPolicy)
     clear_existing: bool = True
+    target_background_slide_index: int = 0
 
 
 @dataclass

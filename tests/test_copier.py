@@ -135,6 +135,35 @@ def _registered_master_count(pptx_path: Path) -> int:
     )
 
 
+def _slide_layout_target(pptx_path: Path, slide_index: int = 0) -> str:
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    with zipfile.ZipFile(pptx_path) as archive:
+        presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
+        presentation_rels = ET.fromstring(archive.read("ppt/_rels/presentation.xml.rels"))
+        slide_ids = presentation_root.findall(f"./{{{p_ns}}}sldIdLst/{{{p_ns}}}sldId")
+        selected_slide_id = slide_ids[slide_index]
+        selected_slide_rid = selected_slide_id.attrib[f"{{{r_ns}}}id"]
+        slide_target = next(
+            rel.attrib["Target"]
+            for rel in presentation_rels.findall(f"{{{rel_ns}}}Relationship")
+            if rel.attrib.get("Id") == selected_slide_rid
+        )
+        slide_part = posixpath.normpath(posixpath.join("ppt", slide_target))
+        slide_rels_part = posixpath.join(
+            posixpath.dirname(slide_part),
+            "_rels",
+            f"{posixpath.basename(slide_part)}.rels",
+        )
+        slide_rels = ET.fromstring(archive.read(slide_rels_part))
+        return next(
+            rel.attrib["Target"]
+            for rel in slide_rels.findall(f"{{{rel_ns}}}Relationship")
+            if rel.attrib.get("Type", "").endswith("/slideLayout")
+        )
+
+
 def test_part_mode_copy_two_slides_and_id_invariants(tmp_path: Path) -> None:
     target = tmp_path / "target.pptx"
     src1 = tmp_path / "source1.pptx"
@@ -217,6 +246,43 @@ def test_shape_mode_copy_two_slides_text_matches(tmp_path: Path) -> None:
     assert "Shape Source B" in _slide_texts(generated.slides[1])
 
     _assert_no_dangling_slide_relationship_refs(output)
+
+
+def test_shape_mode_inherits_target_template_first_slide_layout(tmp_path: Path) -> None:
+    target = tmp_path / "target.pptx"
+    source = tmp_path / "source.pptx"
+    output = tmp_path / "out_shape_layout.pptx"
+
+    _build_target_template(target)
+    _build_source_deck(source, title="Shape Source", body="Shape Body")
+
+    source_layout_target = _slide_layout_target(target)
+    copier = SlideCopier(target)
+    copier.copy_slide(SlideSpec(source, 0), mode="shape")
+    copier.save(output)
+
+    assert _slide_layout_target(output) == source_layout_target
+    assert "Shape Source" in _slide_texts(Presentation(str(output)).slides[0])
+
+
+def test_shape_mode_can_use_second_template_slide_layout(tmp_path: Path) -> None:
+    target = tmp_path / "target.pptx"
+    source = tmp_path / "source.pptx"
+    output = tmp_path / "out_shape_second_layout.pptx"
+
+    _build_target_template(target)
+    target_prs = Presentation(str(target))
+    target_prs.slides.add_slide(target_prs.slide_layouts[1])
+    target_prs.save(target)
+    _build_source_deck(source, title="Shape Source", body="Shape Body")
+
+    second_layout_target = _slide_layout_target(target, slide_index=1)
+    copier = SlideCopier(target, shape_copy_layout_slide_index=1)
+    copier.copy_slide(SlideSpec(source, 0), mode="shape")
+    copier.save(output)
+
+    assert _slide_layout_target(output) == second_layout_target
+    assert "Shape Source" in _slide_texts(Presentation(str(output)).slides[0])
 
 
 def test_part_mode_copy_slide_with_multiple_images_has_unique_media_members(tmp_path: Path) -> None:

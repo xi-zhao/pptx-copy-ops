@@ -46,10 +46,18 @@ class SlideCopier:
     _NOTES_ID_TAG = f"{{{_PML_NS}}}notesId"
     _CUST_DATA_LST_TAG = f"{{{_PML_NS}}}custDataLst"
 
-    def __init__(self, target_template: Path | str, clear_existing: bool = True):
+    def __init__(
+        self,
+        target_template: Path | str,
+        clear_existing: bool = True,
+        shape_copy_layout_slide_index: int | None = 0,
+    ):
         self._target_template = Path(target_template).expanduser().resolve()
         self.presentation = Presentation(str(self._target_template))
         self._source_cache: Dict[str, Presentation] = {}
+        self._shape_copy_layout = self._resolve_shape_copy_layout(
+            shape_copy_layout_slide_index
+        )
         if clear_existing:
             self._delete_all_slides()
 
@@ -78,6 +86,12 @@ class SlideCopier:
             r_id = self.presentation.slides._sldIdLst[index].rId
             self.presentation.part.drop_rel(r_id)
             del self.presentation.slides._sldIdLst[index]
+
+    def _resolve_shape_copy_layout(self, slide_index: int | None) -> Any | None:
+        if slide_index is None or not len(self.presentation.slides):
+            return None
+        bounded_index = max(0, min(slide_index, len(self.presentation.slides) - 1))
+        return self.presentation.slides[bounded_index].slide_layout
 
     def _get_source_slide(self, spec: SlideSpec) -> Slide:
         source_path = str(spec.resolved_path())
@@ -240,12 +254,12 @@ class SlideCopier:
         return imported_part
 
     def _copy_slide_shape(self, source_slide: Slide) -> Slide:
-        blank_layout = (
+        target_layout = self._shape_copy_layout or (
             self.presentation.slide_layouts[6]
             if len(self.presentation.slide_layouts) > 6
             else self.presentation.slide_layouts[0]
         )
-        target_slide = self.presentation.slides.add_slide(blank_layout)
+        target_slide = self.presentation.slides.add_slide(target_layout)
 
         for shape in list(target_slide.shapes):
             element = shape.element

@@ -244,7 +244,7 @@ def _inject_master_chart_with_style_dependency(path: Path) -> None:
     temp_path.replace(path)
 
 
-def test_foreground_promote_keeps_master_foreground_and_slide_text(tmp_path: Path) -> None:
+def test_foreground_promote_keeps_slide_text_without_source_master_chrome(tmp_path: Path) -> None:
     source = tmp_path / "source.pptx"
     target = tmp_path / "target.pptx"
     output = tmp_path / "output.pptx"
@@ -262,6 +262,37 @@ def test_foreground_promote_keeps_master_foreground_and_slide_text(tmp_path: Pat
             slide_index=0,
             target_pptx=target,
             policy=ForegroundCopyPolicy(copy_policy=CopyPolicy.FOREGROUND_PROMOTE),
+        ),
+        output_pptx=output,
+    )
+
+    texts = _slide_texts(output)
+    assert "SLIDE_FOREGROUND_MARKER" in texts
+    assert "MASTER_FOREGROUND_MARKER" not in texts
+    assert "MASTER_BACKGROUND_MARKER" not in "\n".join(texts)
+    assert result.trace.promoted_elements == []
+    assert result.trace.audit_issues == []
+    assert audit_pptx_integrity(output) == []
+
+
+def test_foreground_with_source_chrome_keeps_master_foreground_and_slide_text(tmp_path: Path) -> None:
+    source = tmp_path / "source.pptx"
+    target = tmp_path / "target.pptx"
+    output = tmp_path / "output.pptx"
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_textbox(500000, 700000, 3000000, 400000).text = "SLIDE_FOREGROUND_MARKER"
+    prs.save(source)
+    _inject_master_shapes(source)
+    Presentation().save(target)
+
+    result = copy_foreground_slide(
+        ForegroundCopyRequest(
+            source_pptx=source,
+            slide_index=0,
+            target_pptx=target,
+            policy=ForegroundCopyPolicy(copy_policy=CopyPolicy.FOREGROUND_WITH_SOURCE_CHROME),
         ),
         output_pptx=output,
     )
@@ -348,7 +379,7 @@ def test_exact_part_copy_keeps_source_master_registration(tmp_path: Path) -> Non
     assert audit_pptx_integrity(output) == []
 
 
-def test_foreground_promote_copies_promoted_chart_dependency_closure(tmp_path: Path) -> None:
+def test_foreground_with_source_chrome_copies_promoted_chart_dependency_closure(tmp_path: Path) -> None:
     source = tmp_path / "source_chart.pptx"
     target = tmp_path / "target_chart.pptx"
     output = tmp_path / "output_chart.pptx"
@@ -365,7 +396,7 @@ def test_foreground_promote_copies_promoted_chart_dependency_closure(tmp_path: P
             source_pptx=source,
             slide_index=0,
             target_pptx=target,
-            policy=ForegroundCopyPolicy(copy_policy=CopyPolicy.FOREGROUND_PROMOTE),
+            policy=ForegroundCopyPolicy(copy_policy=CopyPolicy.FOREGROUND_WITH_SOURCE_CHROME),
         ),
         output_pptx=output,
     )

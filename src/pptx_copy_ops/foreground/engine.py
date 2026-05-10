@@ -50,15 +50,16 @@ def copy_foreground_slide(
                 target_slide_index=-1,
             )
         )
-        promotion = promote_foreground_elements(
-            output_pptx=output,
-            source_pptx=source_pptx,
-            inventory=inventory,
-            policy=request.policy,
-            target_slide_index=-1,
-        )
-        trace.promoted_elements.extend(promotion.promoted_elements)
-        trace.copied_parts.extend(promotion.copied_parts)
+        if request.policy.copy_policy == CopyPolicy.FOREGROUND_WITH_SOURCE_CHROME:
+            promotion = promote_foreground_elements(
+                output_pptx=output,
+                source_pptx=source_pptx,
+                inventory=inventory,
+                policy=request.policy,
+                target_slide_index=-1,
+            )
+            trace.promoted_elements.extend(promotion.promoted_elements)
+            trace.copied_parts.extend(promotion.copied_parts)
 
     sanitize_report = sanitize_pptx_package(output)
     trace.sanitized_parts.extend(sanitize_report.sanitized_parts)

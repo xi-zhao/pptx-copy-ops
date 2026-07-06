@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .copier import SlideCopier, SlideSpec
+from .copier import SlideSpec, copy_pptx_slides
 
 
 def _parse_source_spec(raw: str) -> SlideSpec:
@@ -43,9 +43,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     specs = [_parse_source_spec(raw) for raw in args.source]
-    copier = SlideCopier(args.target, clear_existing=True)
-    copier.copy_slides(specs, mode=args.mode)
-    destination = copier.save(args.output)
+    destination = copy_pptx_slides(
+        target_template=args.target,
+        sources=specs,
+        output_pptx=args.output,
+        mode=args.mode,
+        clear_existing=True,
+    )
     print(destination)
     return 0
 

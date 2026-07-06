@@ -41,17 +41,17 @@ pip install pptx-copy-ops
 ## Python API / Python 调用
 
 ```python
-from pptx_copy_ops import SlideCopier, SlideSpec
+from pptx_copy_ops import copy_pptx_slides
 
-copier = SlideCopier("/path/to/target-template.pptx", clear_existing=True)
-copier.copy_slides(
-    [
-        SlideSpec("/path/to/theme1.pptx", 0),   # 0-based
-        SlideSpec("/path/to/theme2.pptx", 12),  # 0-based
+copy_pptx_slides(
+    target_template="/path/to/target-template.pptx",
+    sources=[
+        ("/path/to/theme1.pptx", 0),   # 0-based
+        ("/path/to/theme2.pptx", 12),  # 0-based
     ],
+    output_pptx="/path/to/output.pptx",
     mode="part",
 )
-copier.save("/path/to/output.pptx")
 ```
 
 ## CLI / 命令行
@@ -77,12 +77,14 @@ Arguments / 参数说明:
 
 ## Guarantees / 能力保证
 
+- Part-level copy imports the source slide's part graph, including its slide layout and slide master.
 - Part-level copy skips `notesSlide` relation to avoid noisy cross-package note dependencies.
 - Imported slide masters are auto-registered in `presentation.xml`.
 - Layout IDs are normalized globally and kept disjoint from master IDs.
 
 对应中文：
 
+- `part` 模式会导入源幻灯片的 part 关系图，包括对应版式和幻灯片母版。
 - `part` 模式会跳过 `notesSlide` 关系，避免跨包注释页噪声依赖。
 - 自动将导入母版注册到 `presentation.xml`。
 - 全局规整 `layout id`，并与 `master id` 保持互斥，避免冲突。
